@@ -1,0 +1,57 @@
+flowchart TB
+    user["User"]
+    dns["DNS"] -. resolves name .-> domain["www.foobar.com"]
+    domain -->|A record → 8.8.8.8| lb1["Load balancer (HAProxy)"]
+    lb1 <-->|failover| lb2["Load balancer (HAProxy)"]
+
+    subgraph webtier["Web tier"]
+        direction TB
+        web1["Web server (Nginx)"]
+        web2["Web server (Nginx)"]
+    end
+
+    subgraph apptier["Application tier"]
+        direction TB
+        app1["Application server"]
+        app2["Application server"]
+    end
+
+    subgraph dbtier["Database tier"]
+        direction TB
+        primary["Database primary (MySQL)"] -->|replication| replica["Database replica (MySQL)"]
+    end
+
+    monitoring["Monitoring system"]
+
+    user -->|HTTPS| lb1
+    lb1 --> web1
+    lb1 --> web2
+    lb2 -.->|After failover| web1
+    lb2 -.->|After failover| web2
+
+    web1 --> app1
+    web1 --> app2
+    web2 --> app1
+    web2 --> app2
+
+    app1 -->|Database query / write| primary
+    app2 -->|Database query / write| primary
+    primary -->|Query result| app1
+    primary -->|Query result| app2
+
+    app1 -->|Response| web1
+    app2 -->|Response| web1
+    app1 -->|Response| web2
+    app2 -->|Response| web2
+    web1 -->|Response| lb1
+    web2 -->|Response| lb1
+    lb1 -->|Response| user
+
+    lb1 -.->|Metrics| monitoring
+    lb2 -.->|Metrics| monitoring
+    web1 -.->|QPS metrics| monitoring
+    web2 -.->|QPS metrics| monitoring
+    app1 -.->|Metrics| monitoring
+    app2 -.->|Metrics| monitoring
+    primary -.->|Metrics| monitoring
+    replica -.->|Metrics| monitoring
