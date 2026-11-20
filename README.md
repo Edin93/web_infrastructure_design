@@ -52,3 +52,49 @@ The single server is a single point of failure: if it or a critical service on i
 
 ---
 
+## Redundant web tier
+
+The evolved diagram is in [`redundant_web_tier.mmd`](redundant_web_tier.mmd). It keeps the `www.foobar.com` entry point and shows the DNS A record directing traffic to the HAProxy load balancer at the scenario's `8.8.8.8` address.
+
+```mermaid
+flowchart LR
+    user["User"] -->|Request| domain["www.foobar.com"]
+    dns["DNS"] -. resolves name .-> domain
+    domain -->|A record → 8.8.8.8| lb["Load balancer (HAProxy)"]
+
+    lb -->|Distributes requests| web1
+    lb -->|Distributes requests| web2
+
+    subgraph node1["Web/App node 1"]
+        direction LR
+        web1["Web server (Nginx)"] --> app1["Application server"]
+    end
+
+    subgraph node2["Web/App node 2"]
+        direction LR
+        web2["Web server (Nginx)"] --> app2["Application server"]
+    end
+
+    app1 -->|Database query / write| primary["Database primary (MySQL)"]
+    app2 -->|Database query / write| primary
+    primary -->|Query result| app1
+    primary -->|Query result| app2
+    primary -->|replication| replica["Database replica (MySQL)"]
+
+    app1 -->|Response| web1
+    app2 -->|Response| web2
+    web1 -->|Response| lb
+    web2 -->|Response| lb
+    lb -->|Response| user
+```
+
+The load balancer was added to distribute incoming requests across two equivalent web/application paths. Each path has its own Nginx web server and application server, so one path can continue handling requests if the other path fails; it also adds application-tier capacity. The two paths are **active-active**: both are available to serve requests at the same time. In an **active-passive** design, the standby path would wait while the active path serves traffic, then take over after a failure.
+
+One possible distribution method is **round robin**: the load balancer sends successive requests to each path in turn. The diagram shows both paths receiving traffic, though the distribution policy itself is an implementation choice.
+
+The **database primary** is the writable database that handles the application paths' queries and writes. The **database replica** receives a copy of changes from the primary through the directed replication flow; this diagram does not send writes to the replica or assume automatic failover. A replica may support recovery or read workloads if separately configured, but replication alone does not keep writes available when the primary fails.
+
+The load balancer is a remaining single point of failure because only one is shown. The writable database primary is another single point of failure for database writes. This design also omits HTTPS, firewalls, and monitoring, so those protections and operational visibility are limitations. Redundancy can improve application availability and capacity, but it adds infrastructure, configuration, and operational cost.
+
+---
+
