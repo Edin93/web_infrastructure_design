@@ -1,0 +1,40 @@
+flowchart TB
+    user["User"] -->|HTTPS| edgefw["Firewall"]
+    dns["DNS"] -. resolves name .-> domain["www.foobar.com"]
+    domain -->|A record → 8.8.8.8| edgefw
+    edgefw --> lb["Load balancer (HAProxy)"]
+
+    lb -->|Distributes requests| fw1
+    lb -->|Distributes requests| fw2
+
+    subgraph node1["Web/App node 1"]
+        direction LR
+        fw1["Firewall"] --> web1["Web server (Nginx)"] --> app1["Application server"]
+    end
+
+    subgraph node2["Web/App node 2"]
+        direction LR
+        fw2["Firewall"] --> web2["Web server (Nginx)"] --> app2["Application server"]
+    end
+
+    app1 -->|Database query / write| primary["Database primary (MySQL)"]
+    app2 -->|Database query / write| primary
+    primary -->|Query result| app1
+    primary -->|Query result| app2
+    primary -->|replication| replica["Database replica (MySQL)"]
+
+    app1 -->|Response| web1
+    app2 -->|Response| web2
+    web1 -->|Response| fw1
+    web2 -->|Response| fw2
+    fw1 -->|Response| lb
+    fw2 -->|Response| lb
+    lb -->|Response| edgefw
+    edgefw -->|HTTPS response| user
+
+    lb -.->|Metrics| monitoring["Monitoring system"]
+    web1 -.->|QPS metrics| monitoring
+    web2 -.->|QPS metrics| monitoring
+    app1 -.->|Metrics| monitoring
+    app2 -.->|Metrics| monitoring
+    primary -.->|Metrics| monitoring
