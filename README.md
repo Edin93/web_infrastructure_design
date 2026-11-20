@@ -158,3 +158,76 @@ When web, application, and database services share the same host, they compete f
 
 ---
 
+## Separated tiers
+
+The evolved design is in [`separated_tiers.mmd`](separated_tiers.mmd). It keeps the HTTPS entry, DNS name, and metric flows, while placing web servers, application servers, and databases in distinct tiers. Two HAProxy nodes are connected by a conceptual `failover` relationship; the dashed path from the second node represents traffic after failover, without specifying how failure is detected or traffic is redirected.
+
+```mermaid
+flowchart LR
+    user["User"]
+    dns["DNS"] -. resolves name .-> domain["www.foobar.com"]
+    domain -->|A record → 8.8.8.8| lb1["Load balancer (HAProxy)"]
+    lb1 <-->|failover| lb2["Load balancer (HAProxy)"]
+
+    subgraph webtier["Web tier"]
+        direction TB
+        web1["Web server (Nginx)"]
+        web2["Web server (Nginx)"]
+    end
+
+    subgraph apptier["Application tier"]
+        direction TB
+        app1["Application server"]
+        app2["Application server"]
+    end
+
+    subgraph dbtier["Database tier"]
+        direction TB
+        primary["Database primary (MySQL)"] -->|replication| replica["Database replica (MySQL)"]
+    end
+
+    monitoring["Monitoring system"]
+
+    user -->|HTTPS| lb1
+    lb1 --> web1
+    lb1 --> web2
+    lb2 -.->|After failover| web1
+    lb2 -.->|After failover| web2
+
+    web1 --> app1
+    web1 --> app2
+    web2 --> app1
+    web2 --> app2
+
+    app1 -->|Database query / write| primary
+    app2 -->|Database query / write| primary
+    primary -->|Query result| app1
+    primary -->|Query result| app2
+
+    app1 -->|Response| web1
+    app2 -->|Response| web1
+    app1 -->|Response| web2
+    app2 -->|Response| web2
+    web1 -->|Response| lb1
+    web2 -->|Response| lb1
+    lb1 -->|Response| user
+
+    lb1 -.->|Metrics| monitoring
+    lb2 -.->|Metrics| monitoring
+    web1 -.->|QPS metrics| monitoring
+    web2 -.->|QPS metrics| monitoring
+    app1 -.->|Metrics| monitoring
+    app2 -.->|Metrics| monitoring
+    primary -.->|Metrics| monitoring
+    replica -.->|Metrics| monitoring
+```
+
+In the single-server design, the web server, application server, and database share one server, so one machine failure or maintenance event can affect the whole site. Here the web, application, and database roles are shown in separate tiers, with multiple web and application instances; the database tier still has one writable primary and one replica.
+
+Separate tiers allow capacity to be added where measurements show it is needed: web instances for request handling, application instances for application work, or database resources for data workload. Scaling one tier does not require multiplying every other tier, though each tier must still have enough capacity and suitable connections to its neighbors.
+
+Separation can also reduce the effect of maintenance on unrelated components. For example, a web server can be patched or replaced without taking every application server and the database down with it; similarly, application instances can be updated in batches while other instances continue serving. This benefit depends on the service being able to route around the instance being maintained.
+
+Instance counts should follow measured demand, expected growth, failure tolerance, and a justified safety margin. Copying counts from an illustrative diagram or maximizing instances without evidence can waste money and still fail to address the actual bottleneck.
+
+The database primary remains a write-availability limitation: replication is shown, but automatic database failover and promotion are not designed here. The load-balancer relationship is also conceptual and does not define detection or traffic redirection. Separate tiers and redundant instances improve flexibility but increase infrastructure cost and operational complexity.
