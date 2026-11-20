@@ -98,3 +98,63 @@ The load balancer is a remaining single point of failure because only one is sho
 
 ---
 
+
+## Protected and monitored stack
+
+The evolved diagram is in [`protected_monitored_stack.mmd`](protected_monitored_stack.mmd). The domain's A record points to the edge firewall address in this scenario; user traffic reaches the load balancer through that firewall, and the two application paths each have a firewall in front of them. Dashed arrows distinguish one-way metric flows from request and response traffic.
+
+```mermaid
+flowchart LR
+    user["User"] -->|HTTPS| edgefw["Firewall"]
+    dns["DNS"] -. resolves name .-> domain["www.foobar.com"]
+    domain -->|A record → 8.8.8.8| edgefw
+    edgefw --> lb["Load balancer (HAProxy)"]
+
+    lb -->|Distributes requests| fw1
+    lb -->|Distributes requests| fw2
+
+    subgraph node1["Web/App node 1"]
+        direction LR
+        fw1["Firewall"] --> web1["Web server (Nginx)"] --> app1["Application server"]
+    end
+
+    subgraph node2["Web/App node 2"]
+        direction LR
+        fw2["Firewall"] --> web2["Web server (Nginx)"] --> app2["Application server"]
+    end
+
+    app1 -->|Database query / write| primary["Database primary (MySQL)"]
+    app2 -->|Database query / write| primary
+    primary -->|Query result| app1
+    primary -->|Query result| app2
+    primary -->|replication| replica["Database replica (MySQL)"]
+
+    app1 -->|Response| web1
+    app2 -->|Response| web2
+    web1 -->|Response| fw1
+    web2 -->|Response| fw2
+    fw1 -->|Response| lb
+    fw2 -->|Response| lb
+    lb -->|Response| edgefw
+    edgefw -->|HTTPS response| user
+
+    lb -.->|Metrics| monitoring["Monitoring system"]
+    web1 -.->|QPS metrics| monitoring
+    web2 -.->|QPS metrics| monitoring
+    app1 -.->|Metrics| monitoring
+    app2 -.->|Metrics| monitoring
+    primary -.->|Metrics| monitoring
+```
+
+A firewall filters network traffic according to configured rules, allowing or blocking connections between network zones. It can reduce unwanted access, but it does not by itself encrypt traffic, fix vulnerable application code, or guarantee that every attack is stopped; no rules are configured by this diagram.
+
+HTTPS uses TLS to encrypt data in transit and help protect it from eavesdropping or alteration while also authenticating the server when its certificate is properly checked. The diagram marks the user's connection as HTTPS. If TLS terminates at the load balancer, traffic from the load balancer to the web servers may be unencrypted unless TLS encryption continues on those internal hops.
+
+Monitoring clients or agents can collect measurements and status from the load balancer and services, then send that telemetry one way to a monitoring system for storage, display, and analysis. Here the dashed arrows represent those metric flows; the diagram does not install agents or configure alerts. QPS means queries per second (or, more generally, requests per second for a web service). Tracking QPS over time can reveal traffic increases or drops and, alongside latency and resource measurements, help identify when a service is approaching capacity.
+
+The database primary remains the only writable database in this design, so its failure can stop writes even while the web and application paths remain available. The replica receives replication updates, but the diagram does not assume automatic promotion or write availability from the replica.
+
+When web, application, and database services share the same host, they compete for the same CPU, memory, storage, and maintenance window. Scaling one role then means scaling the whole host, and maintenance or a resource problem in one role can affect the others. Separating roles can make scaling and maintenance more independent, at the cost of additional infrastructure and operational work.
+
+---
+
