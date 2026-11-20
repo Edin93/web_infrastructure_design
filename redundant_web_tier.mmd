@@ -1,0 +1,29 @@
+flowchart TB
+    user["User"] -->|Request| domain["www.foobar.com"]
+    dns["DNS"] -. resolves name .-> domain
+    domain -->|A record → 8.8.8.8| lb["Load balancer (HAProxy)"]
+
+    lb -->|Distributes requests| web1
+    lb -->|Distributes requests| web2
+
+    subgraph node1["Web/App node 1"]
+        direction LR
+        web1["Web server (Nginx)"] --> app1["Application server"]
+    end
+
+    subgraph node2["Web/App node 2"]
+        direction LR
+        web2["Web server (Nginx)"] --> app2["Application server"]
+    end
+
+    app1 -->|Database query / write| primary["Database primary (MySQL)"]
+    app2 -->|Database query / write| primary
+    primary -->|Query result| app1
+    primary -->|Query result| app2
+    primary -->|replication| replica["Database replica (MySQL)"]
+
+    app1 -->|Response| web1
+    app2 -->|Response| web2
+    web1 -->|Response| lb
+    web2 -->|Response| lb
+    lb -->|Response| user
