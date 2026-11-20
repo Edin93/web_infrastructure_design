@@ -1,0 +1,17 @@
+flowchart TB
+    user["User"] -->|Request| domain["www.foobar.com"]
+    dns["DNS"] -. resolves name .-> domain
+
+    domain -->|A record → 8.8.8.8| web
+
+    subgraph server["Single server"]
+        direction LR
+        web["Web server (Nginx)"] -->|Forward request| appserver["Application server"]
+        appserver --> code["Application code"]
+        code -->|Database query| database["Database (PotsgreSQL/MySQL)"]
+        database -->|Query result| code
+        code -->|Application response| appserver
+        appserver -->|HTTP response| web
+    end
+
+    web -->|Response| user
